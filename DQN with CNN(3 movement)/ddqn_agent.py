@@ -23,12 +23,18 @@ np.random.seed(0)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
+
 class DQN(nn.Module):
     def __init__(self, in_channels=1, num_actions=8):
         super(DQN, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, 84, kernel_size=4, stride=4)
         self.conv2 = nn.Conv2d(84, 42, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(42, 21, kernel_size=2, stride=2)
+
+        # Resnet init, AdaptiveAvgPool2d layer at the end of it layer ensures that any size of the input image get converted to a fixed size output
+        # so variable sized input is ok
+        self.resnet = torch.hub.load('pytorch/vision:v.0.10.0', 'resnet18', pretrained=True)
+
         self.fc4 = nn.Linear(21 * 4 * 4, 168)
         self.fc5 = nn.Linear(168, num_actions)
 
@@ -36,7 +42,13 @@ class DQN(nn.Module):
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)
+
+        # Pass input through ResNet
+        resnet_output = self.resnet(x)
+        x = x.view(x.size(0), -1) # flatten, for dimension issue
+        # Concat the output of convolution and resnet
+        x = torch.cat((x, resnet_output.view(resnet_output.size(0), -1)), dim=1)
+
         x = F.relu(self.fc4(x))
         return self.fc5(x)
 
