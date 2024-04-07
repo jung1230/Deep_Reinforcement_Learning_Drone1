@@ -33,7 +33,7 @@ class DQN(nn.Module):
         self.conv3 = nn.Conv2d(42, 21, kernel_size=2, stride=2)
 
         # PReLU initial value set to 0.25 (default)
-        self.weight = torch.Tensor(1).fill_(0.25)
+        self.weight = torch.Tensor(1).fill_(0.25).to(device)
 
         self.resnet = models.resnet18(pretrained=True)
         self.resnet.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
