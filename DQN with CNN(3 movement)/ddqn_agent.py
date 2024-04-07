@@ -15,6 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 import time
 from prioritized_memory import Memory
 import cv2
+import torchvision.models as models
 writer = SummaryWriter()
 
 torch.manual_seed(0)
@@ -31,27 +32,38 @@ class DQN(nn.Module):
         self.conv2 = nn.Conv2d(84, 42, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(42, 21, kernel_size=2, stride=2)
 
-        # Resnet init, AdaptiveAvgPool2d layer at the end of it layer ensures that any size of the input image get converted to a fixed size output
-        # so variable sized input is ok
-        self.resnet = torch.hub.load('pytorch/vision:v.0.10.0', 'resnet18', pretrained=True)
+        # PReLU initial value set to 0.25 (default)
+        self.weight = torch.Tensor(1).fill_(0.25)
 
-        self.fc4 = nn.Linear(21 * 4 * 4, 168)
+        self.resnet = models.resnet18(pretrained=True)
+        self.resnet.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        num_ftrs = self.resnet.fc.in_features
+        self.resnet.fc = nn.Identity()  # Modify the last layer to output feature vector
+
+        combined_output_size = 21 * 4 * 4 + num_ftrs  # Update this based on actual sizes
+        self.fc4 = nn.Linear(combined_output_size, 168)
         self.fc5 = nn.Linear(168, num_actions)
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        # Convolutional layers
+        conv_output = F.prelu(self.conv1(x), self.weight)
+        conv_output = F.prelu(self.conv2(conv_output), self.weight)
+        conv_output = F.prelu(self.conv3(conv_output), self.weight)
 
-        # Pass input through ResNet
-        resnet_output = self.resnet(x)
-        x = x.view(x.size(0), -1) # flatten, for dimension issue
-        # Concat the output of convolution and resnet
-        x = torch.cat((x, resnet_output.view(resnet_output.size(0), -1)), dim=1)
+        # ResNet
+        resnet_output = self.resnet(x)  # Pass the original input through ResNet
 
-        x = F.relu(self.fc4(x))
-        return self.fc5(x)
+        # Flatten outputs
+        conv_output = conv_output.view(conv_output.size(0), -1)
+        # ResNet output is already flattened by the Identity layer
 
+        # Concatenate the outputs
+        combined_output = torch.cat((conv_output, resnet_output), dim=1)
+
+        # Fully connected layers
+        x = F.prelu(self.fc4(combined_output), self.weight)
+        x = self.fc5(x)
+        return x
 
 class DDQN_Agent:
     def __init__(self, useDepth=False):

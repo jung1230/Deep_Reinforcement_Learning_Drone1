@@ -304,3 +304,7 @@ class DroneEnv(object):
         return observation, image
 
 
+
+        # myenv\Scripts\activate.bat before run the program 
+
+
