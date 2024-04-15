@@ -46,9 +46,9 @@ class DQN(nn.Module):
 
     def forward(self, x):
         # Convolutional layers
-        conv_output = F.prelu(self.conv1(x), self.weight)
-        conv_output = F.prelu(self.conv2(conv_output), self.weight)
-        conv_output = F.prelu(self.conv3(conv_output), self.weight)
+        conv_output = F.relu(self.conv1(x))
+        conv_output = F.relu(self.conv2(conv_output))
+        conv_output = F.relu(self.conv3(conv_output))
 
         # ResNet
         resnet_output = self.resnet(x)  # Pass the original input through ResNet
@@ -61,7 +61,7 @@ class DQN(nn.Module):
         combined_output = torch.cat((conv_output, resnet_output), dim=1)
 
         # Fully connected layers
-        x = F.prelu(self.fc4(combined_output), self.weight)
+        x = F.relu(self.fc4(combined_output))
         x = self.fc5(x)
         return x
 
@@ -254,13 +254,13 @@ class DDQN_Agent:
 
                     print(
                         "episode:{0}, reward: {1}, mean reward: {2}, score: {3}, epsilon: {4}, total steps: {5}".format(
-                            self.episode, reward, round(score / steps, 2), score, self.eps_threshold, self.steps_done))
+                            self.episode, reward, round(float(score/steps), 2), score, self.eps_threshold, self.steps_done))
                     score_history.append(score)
                     reward_history.append(reward)
                     with open('log.txt', 'a') as file:
                         file.write(
                             "episode:{0}, reward: {1}, mean reward: {2}, score: {3}, epsilon: {4}, total steps: {5}\n".format(
-                                self.episode, reward, round(score / steps, 2), score, self.eps_threshold,
+                                self.episode, reward, round(float(score / steps), 2), score, self.eps_threshold,
                                 self.steps_done))
 
                     if torch.cuda.is_available():

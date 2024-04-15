@@ -64,3 +64,12 @@ if __name__ == '__main__':
     test_ned()
     # test_tensorify()
     print('Done\a')
+
+"""
+@software{brando2021ned,
+    author={Brando Miranda},
+    title={PyTorch implementation of Normalized Euclidean Similarity},
+    url={https://github.com/brando90/Normalized-Euclidean-Distance-and-Similarity},
+    year={2021}
+}
+"""
