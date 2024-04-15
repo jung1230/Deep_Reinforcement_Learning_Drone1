@@ -27,13 +27,14 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 class DQN(nn.Module):
     def __init__(self, in_channels=1, num_actions=8):
+        
         super(DQN, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, 84, kernel_size=4, stride=4)
         self.conv2 = nn.Conv2d(84, 42, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(42, 21, kernel_size=2, stride=2)
 
         # PReLU initial value set to 0.25 (default)
-        self.weight = torch.Tensor(1).fill_(0.25)
+        # self.weight = torch.Tensor(1).fill_(0.15).to(device)
 
         self.resnet = models.resnet18(pretrained=True)
         self.resnet.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
@@ -46,9 +47,9 @@ class DQN(nn.Module):
 
     def forward(self, x):
         # Convolutional layers
-        conv_output = F.prelu(self.conv1(x), self.weight)
-        conv_output = F.prelu(self.conv2(conv_output), self.weight)
-        conv_output = F.prelu(self.conv3(conv_output), self.weight)
+        conv_output = F.relu(self.conv1(x))
+        conv_output = F.relu(self.conv2(conv_output))
+        conv_output = F.relu(self.conv3(conv_output))
 
         # ResNet
         resnet_output = self.resnet(x)  # Pass the original input through ResNet
@@ -61,7 +62,7 @@ class DQN(nn.Module):
         combined_output = torch.cat((conv_output, resnet_output), dim=1)
 
         # Fully connected layers
-        x = F.prelu(self.fc4(combined_output), self.weight)
+        x = F.relu(self.fc4(combined_output))
         x = self.fc5(x)
         return x
 
@@ -152,7 +153,7 @@ class DDQN_Agent:
         return tensor
 
     def convert_size(self, size_bytes):
-        if size_bytes == 0:
+        if size_bytes <= 0:
             return "0B"
         size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
         i = int(math.floor(math.log(size_bytes, 1024)))
