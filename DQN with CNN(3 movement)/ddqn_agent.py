@@ -33,13 +33,9 @@ class DQN(nn.Module):
         self.conv2 = nn.Conv2d(84, 42, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(42, 21, kernel_size=2, stride=2)
 
-        # PReLU initial value set to 0.25 (default)
-<<<<<<< HEAD
-        # self.weight = torch.Tensor(1).fill_(0.15).to(device)
-=======
-        self.weight = torch.Tensor(1).fill_(0.25).to(device)
->>>>>>> 59ed11131e2e10f9f13a8d092cd0c0174a4dd1f7
 
+        self.weight = torch.Tensor(1).fill_(0.25).to(device)
+        
         self.resnet = models.resnet18(pretrained=True)
         self.resnet.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
         num_ftrs = self.resnet.fc.in_features
