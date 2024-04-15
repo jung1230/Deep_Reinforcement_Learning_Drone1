@@ -1,12 +1,11 @@
 import airsim
 
 import torch
-
 import numpy as np
 import time
 
 from PIL import Image
-
+from main_ned_nes import *
 import csv
 
 import math
@@ -25,7 +24,7 @@ import random
 
 
 MOVEMENT_INTERVAL = 1
-checkpoint = 0
+CHECKPOINT = 0
 
 class DroneEnv(object):
 
@@ -53,7 +52,7 @@ class DroneEnv(object):
 
         self.client.moveByAngleRatesThrottleAsync(0, 0.3, yaw_angle, 0.61, 1).join() # Wait for movement to complete
         quad_state = self.client.getMultirotorState().kinematics_estimated.position
-        print(f"{quad_state.x_val:.1f} {quad_state.y_val:.1f} {quad_state.z_val:.1f}", end=' || ')
+        print(f"{quad_state.x_val:.1f} {quad_state.y_val:.1f} {quad_state.z_val:.1f}",end=" ")
 
         self.client.moveToZAsync(-1.5, 1, 1).join()
 
@@ -107,66 +106,106 @@ class DroneEnv(object):
         
 
     def compute_reward(self, drone_position, collision):
-
+        global CHECKPOINT
         reward = -1
         done = 0
+
+        # current heading
+        angle = self.angle
+        x = math.cos(angle)
+        y = math.sin(angle)
+        heading = torch.tensor([x,y], dtype=torch.float32)
+
+        # Orientation detection
+        if CHECKPOINT == 0:
+            goal_loc = torch.tensor([[61.45759963989258, 36.440147399902344, -2]], dtype=torch.float) #first goal
+        else:
+            goal_loc = torch.tensor([[38.70063400268555,  78.32078552246094, -2]], dtype=torch.float) #final goal
+
+        direction = goal_loc - torch.tensor([[drone_position.x_val, drone_position.y_val, drone_position.z_val]], dtype=torch.float)
+        direction_norm = torch.norm(direction)
+
+        if direction_norm > 1:
+            heading_vec = direction / direction_norm
+        else:
+            heading_vec = direction
+        heading_vec = heading_vec.squeeze()
+        heading_dp = torch.dot(heading_vec[:2], heading)
+
+        # if heading_dp < 0, current drone's heading is opposite
 
         if collision:
             reward = -50
             done = 1
         else:
+            # Euclidean Distance
             dist = self.get_distance_to_goal(drone_position)
 
-            progress = self.last_dist - dist
+            # 4 divided reward system (Since normalized, value close to 0 meaning the drone is about to reach the destination)
+            if dist > 0.75:
+                # Zone 1
+                reward = 1
+            elif 0.5 < dist < 0.75:
+                # Zone 2
+                reward = 2
+            elif 0.25 < dist < 0.5:
+                # Zone 3
+                reward = 3
+            else:
+                # Zone 4
+                reward = 4
+
+            progress = (self.last_dist - dist) * heading_dp
             self.last_dist = dist
 
-            if dist < 10 and checkpoint == 0:
-                reward += 10
-                checkpoint = 1
-                print("\nCK1\n")
-            elif dist < 10 and checkpoint == 1:
-                reward = 500
-                print("\nCK2\n")
+            print("Current Progress:", progress.item(), end=" ")
+            # Dynamic Penalty
+            if progress > 0:
+                # If there's a progress, we assign the reward based on the Zone
+                # Progress is always < 1
+                reward += reward * (progress + (1 - dist))
+                print(f"added reward: {reward.item()}", end=" ")
 
             else:
-                reward +=  progress
+                penalty = reward * (dist + abs(progress))
+                old_reward = reward
+                reward -= penalty
+                print(f"Applied penalty: {old_reward} - {penalty.item()} = {reward.item()}", end=" ")
 
-        
-        print("reward: {:.1f}".format(reward), "Loc:",end='')
-        # if reward <= -1:
-        #     reward = -50
-        #     done = 1
 
-        #     time.sleep(1)
+            if dist <= 0.05 and CHECKPOINT == 0:
+                reward *= 2
+                CHECKPOINT = 1
+                print("\nCK1\n")
+            elif dist < 0.05 and CHECKPOINT == 1:
+                reward *= 2
+                print("\nCK2\n")
         
-        
-        if reward >= 400:
-            done = 1
-            time.sleep(1)
-
+        print("reward: {:.1f}".format(float(reward)), "\nLoc:", end='')
 
         return reward, done
-
-  
-
 
     def get_distance_to_goal(self, drone_position):
         # quad_state = self.client.getMultirotorState().kinematics_estimated.position
         # print(quad_state.x_val, quad_state.y_val, quad_state.z_val)
-        if checkpoint == 0:
-            goal_loc = np.array([ 61.45759963989258, 36.440147399902344, -2]) #first goal
+        if CHECKPOINT == 0:
+            goal_loc = torch.tensor([[61.45759963989258, 36.440147399902344, -2]], dtype=torch.float) #first goal
         else:
-            goal_loc = np.array([38.70063400268555,  78.32078552246094, -2]) #final goal
+            goal_loc = torch.tensor([[38.70063400268555,  78.32078552246094, -2]], dtype=torch.float) #final goal
 
-        drone_loc = np.array(list((drone_position.x_val, drone_position.y_val, drone_position.z_val)))
-        
+        drone_loc = torch.tensor([[drone_position.x_val, drone_position.y_val, drone_position.z_val]], dtype=torch.float)
+
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        drone_loc = drone_loc.to(device)
+        goal_loc = goal_loc.to(device)
 
         # Compute the Euclidean distance between the current position and the goal position
 
-        dist = np.linalg.norm(drone_loc - goal_loc)
+        # dist = np.linalg.norm(drone_loc - goal_loc)
+        # Compute Normalized Euclidean Distance
+        dist = ned_torch(drone_loc, goal_loc)
 
         return dist
-
 
     def get_vision(self):
 
@@ -195,7 +234,6 @@ class DroneEnv(object):
             # Get rgb image
 
             responses = self.client.simGetImages(
-
                 [airsim.ImageRequest("1", airsim.ImageType.Scene, False, False)]
             )
 
@@ -207,12 +245,9 @@ class DroneEnv(object):
 
             image_array = Image.fromarray(image).resize((84, 84)).convert("L")
 
-
         observation = np.array(image_array)
 
-
         return observation, image
-
 
     def reset(self):
         self.client.reset()
@@ -297,14 +332,9 @@ class DroneEnv(object):
         #     self.client.simSetVehiclePose(airsim.Pose(target_position, target_orientation), True)
 
         #     collision_info = self.client.simGetCollisionInfo()
-
-
         observation, image = self.get_vision()
 
         return observation, image
-
-
-
         # myenv\Scripts\activate.bat before run the program 
 
 

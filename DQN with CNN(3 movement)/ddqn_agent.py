@@ -35,7 +35,7 @@ class DQN(nn.Module):
 
 
         self.weight = torch.Tensor(1).fill_(0.25).to(device)
-        
+
         self.resnet = models.resnet18(pretrained=True)
         self.resnet.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
         num_ftrs = self.resnet.fc.in_features
@@ -183,7 +183,7 @@ class DDQN_Agent:
         next_q = self.target(next_state).squeeze().cpu().detach().numpy()[action]
         expected_q = reward + (self.gamma * next_q)
 
-        error = abs(current_q - expected_q),
+        error = abs(current_q - expected_q)
 
         self.memory.add(error, state, action, reward, next_state)
 
@@ -255,13 +255,13 @@ class DDQN_Agent:
 
                     print(
                         "episode:{0}, reward: {1}, mean reward: {2}, score: {3}, epsilon: {4}, total steps: {5}".format(
-                            self.episode, reward, round(score / steps, 2), score, self.eps_threshold, self.steps_done))
+                            self.episode, reward, round(float(score/steps), 2), score, self.eps_threshold, self.steps_done))
                     score_history.append(score)
                     reward_history.append(reward)
                     with open('log.txt', 'a') as file:
                         file.write(
                             "episode:{0}, reward: {1}, mean reward: {2}, score: {3}, epsilon: {4}, total steps: {5}\n".format(
-                                self.episode, reward, round(score / steps, 2), score, self.eps_threshold,
+                                self.episode, reward, round(float(score / steps), 2), score, self.eps_threshold,
                                 self.steps_done))
 
                     if torch.cuda.is_available():
