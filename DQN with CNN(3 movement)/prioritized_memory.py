@@ -1,6 +1,8 @@
 import random
 import numpy as np
 from SumTree import SumTree
+import torch
+
 
 class Memory:  # stored as ( s, a, r, s_ ) in SumTree
     e = 0.01
@@ -12,8 +14,12 @@ class Memory:  # stored as ( s, a, r, s_ ) in SumTree
         self.tree = SumTree(capacity)
         self.capacity = capacity
 
+    # def _get_priority(self, error):
+    #     return (np.abs(error) + self.e) ** self.a
     def _get_priority(self, error):
-        return (np.abs(error) + self.e) ** self.a
+        abs_error = torch.abs(torch.tensor(error))
+        priority = (abs_error + self.e) ** self.a
+        return priority
 
     def add(self, error, state, action, reward, next_state):
         p = self._get_priority(error)

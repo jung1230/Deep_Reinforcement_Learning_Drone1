@@ -15,6 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 import time
 from prioritized_memory import Memory
 import cv2
+import torchvision.models as models
 writer = SummaryWriter()
 
 torch.manual_seed(0)
@@ -23,23 +24,47 @@ np.random.seed(0)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
+
 class DQN(nn.Module):
     def __init__(self, in_channels=1, num_actions=8):
+        
         super(DQN, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, 84, kernel_size=4, stride=4)
         self.conv2 = nn.Conv2d(84, 42, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(42, 21, kernel_size=2, stride=2)
-        self.fc4 = nn.Linear(21 * 4 * 4, 168)
+
+
+        self.weight = torch.Tensor(1).fill_(0.25).to(device)
+
+        self.resnet = models.resnet18(pretrained=True)
+        self.resnet.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        num_ftrs = self.resnet.fc.in_features
+        self.resnet.fc = nn.Identity()  # Modify the last layer to output feature vector
+
+        combined_output_size = 21 * 4 * 4 + num_ftrs  # Update this based on actual sizes
+        self.fc4 = nn.Linear(combined_output_size, 168)
         self.fc5 = nn.Linear(168, num_actions)
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)
-        x = F.relu(self.fc4(x))
-        return self.fc5(x)
+        # Convolutional layers
+        conv_output = F.relu(self.conv1(x))
+        conv_output = F.relu(self.conv2(conv_output))
+        conv_output = F.relu(self.conv3(conv_output))
 
+        # ResNet
+        resnet_output = self.resnet(x)  # Pass the original input through ResNet
+
+        # Flatten outputs
+        conv_output = conv_output.view(conv_output.size(0), -1)
+        # ResNet output is already flattened by the Identity layer
+
+        # Concatenate the outputs
+        combined_output = torch.cat((conv_output, resnet_output), dim=1)
+
+        # Fully connected layers
+        x = F.relu(self.fc4(combined_output))
+        x = self.fc5(x)
+        return x
 
 class DDQN_Agent:
     def __init__(self, useDepth=False):
@@ -128,7 +153,7 @@ class DDQN_Agent:
         return tensor
 
     def convert_size(self, size_bytes):
-        if size_bytes == 0:
+        if size_bytes <= 0:
             return "0B"
         size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
         i = int(math.floor(math.log(size_bytes, 1024)))
@@ -158,7 +183,7 @@ class DDQN_Agent:
         next_q = self.target(next_state).squeeze().cpu().detach().numpy()[action]
         expected_q = reward + (self.gamma * next_q)
 
-        error = abs(current_q - expected_q),
+        error = abs(current_q - expected_q)
 
         self.memory.add(error, state, action, reward, next_state)
 
@@ -230,13 +255,13 @@ class DDQN_Agent:
 
                     print(
                         "episode:{0}, reward: {1}, mean reward: {2}, score: {3}, epsilon: {4}, total steps: {5}".format(
-                            self.episode, reward, round(score / steps, 2), score, self.eps_threshold, self.steps_done))
+                            self.episode, reward, round(float(score/steps), 2), score, self.eps_threshold, self.steps_done))
                     score_history.append(score)
                     reward_history.append(reward)
                     with open('log.txt', 'a') as file:
                         file.write(
                             "episode:{0}, reward: {1}, mean reward: {2}, score: {3}, epsilon: {4}, total steps: {5}\n".format(
-                                self.episode, reward, round(score / steps, 2), score, self.eps_threshold,
+                                self.episode, reward, round(float(score / steps), 2), score, self.eps_threshold,
                                 self.steps_done))
 
                     if torch.cuda.is_available():
