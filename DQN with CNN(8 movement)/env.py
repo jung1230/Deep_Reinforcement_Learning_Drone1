@@ -81,30 +81,59 @@ class DroneEnv(object):
             
         return self.speed_offset
         
-    def compute_reward(self, drone_position, collision):
-        reward = -1
-        if collision:
-            reward = -100
-        else:
-            dist = self.get_distance_to_goal(drone_position)
-            progress = self.last_dist - dist
-            self.last_dist = dist
+    # def compute_reward(self, drone_position, collision):
+    #     reward = -1
+    #     if collision:
+    #         reward = -100
+    #     else:
+    #         dist = self.get_distance_to_goal(drone_position)
+    #         progress = self.last_dist - dist
+    #         self.last_dist = dist
 
+    #         if dist < 10:
+    #             reward = 500
+    #         else:
+    #             reward +=  progress
+
+    #     done = 0
+    #     if reward <= -10:
+    #         done = 1
+    #         time.sleep(1)
+    #     elif reward >= 500:
+    #         done = 1
+    #         time.sleep(1)
+
+    #     return reward, done
+    def compute_reward(self, drone_position, collision):
+        reward = -1  # Start with a small negative reward to encourage movement
+        if collision:
+            reward = -100  # Big penalty for collision
+        else:
+            dist = self.get_distance_to_goal(drone_position)  # Current distance to the goal
+            progress = self.last_dist - dist  # Calculate progress (negative if moving away)
+    
+            # Update the last distance
+            self.last_dist = dist
+    
+            # If the drone is within a small distance to the goal, provide a large reward
             if dist < 10:
                 reward = 500
             else:
-                reward +=  progress
-
+                if progress > 0:
+                    reward += progress  # Reward for moving closer to the goal
+                else:
+                    reward += progress * 10  # Penalize heavily for moving away from the goal
+    
+        # Check if the episode is done
         done = 0
-        if reward <= -10:
+        if reward <= -10:  # If the drone accumulates too much negative reward, end the episode
             done = 1
             time.sleep(1)
-        elif reward >= 500:
+        elif reward >= 500:  # If the drone reaches the goal
             done = 1
             time.sleep(1)
 
         return reward, done
-
   
 
     def get_distance_to_goal(self, drone_position):
