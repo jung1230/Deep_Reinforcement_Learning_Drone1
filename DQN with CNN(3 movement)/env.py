@@ -135,7 +135,7 @@ class DroneEnv(object):
         # if heading_dp < 0, current drone's heading is opposite
 
         if collision:
-            reward = -50
+            reward = -40
             done = 1
         else:
             # Euclidean Distance
