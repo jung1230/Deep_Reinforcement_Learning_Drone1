@@ -1,48 +1,54 @@
 import airsim
 import time
-import random
+
+# Connect to the AirSim simulator
 client = airsim.MultirotorClient()
 client.confirmConnection()
-client.reset()
-# Arm the drone
 client.enableApiControl(True)
 client.armDisarm(True)
 
+# Take off
+client.takeoffAsync().join()
 
-while True:
-    client.moveToPositionAsync(5487.372, 3550.54, -71.77,1).join()
+# Function to print current drone position
+def print_current_location():
+    state = client.getMultirotorState()
+    position = state.kinematics_estimated.position
+    print(f"Current Drone Location: x={position.x_val}, y={position.y_val}, z={position.z_val}")
 
-    quad_state = client.getMultirotorState().kinematics_estimated.position
-    print(quad_state.x_val, quad_state.y_val, quad_state.z_val)
-    time.sleep(5)
+# Example: Move the drone manually with specific commands
+def manual_control():
+    try:
+        while True:
+            command = input("Enter command (w/a/s/d/q/e to control, 'land' to land, 'exit' to quit): ")
+            
+            if command == "w":
+                client.moveByVelocityAsync(3, 0, 0, 1).join()  # Move forward
+            elif command == "s":
+                client.moveByVelocityAsync(-3, 0, 0, 1).join()  # Move backward
+            elif command == "a":
+                client.moveByVelocityAsync(0, -3, 0, 1).join()  # Move left
+            elif command == "d":
+                client.moveByVelocityAsync(0, 3, 0, 1).join()  # Move right
+            elif command == "q":
+                client.moveByVelocityAsync(0, 0, -3, 1).join()  # Move up
+            elif command == "e":
+                client.moveByVelocityAsync(0, 0, 3, 1).join()   # Move down
+            elif command == "land":
+                client.landAsync().join()  # Land the drone
+            elif command == "exit":
+                break
+            else:
+                print("Invalid command. Use w/a/s/d/q/e or 'land', 'exit'.")
 
+            # Print current location after each move
+            print_current_location()
 
-print("Take off")
-client.takeoffAsync().join()  # Wait for takeoff to complete
-time.sleep(5)
-print("GO")
-# Move the drone (roll_rate, pitch_rate, yaw_rate, throttle, duration, vehicle_name='')
+    finally:
+        # Disable API control and disarm the drone
+        client.armDisarm(False)
+        client.enableApiControl(False)
 
+# Run manual control function
+manual_control()
 
-# yaw_angle = random.randrange(-1, 2)
-client.moveByAngleRatesThrottleAsync(0, 0.2, 1, 0.61, 1).join() # Wait for movement to complete
-
-time.sleep(0.2)
-quad_state = client.getMultirotorState().kinematics_estimated.position
-print(quad_state.z_val)
-client.moveToPositionAsync(quad_state.x_val, quad_state.y_val, -1.78, 3).join()
-print("Stop")
-# Take off to a certain altitude
-
-# Hover for a few seconds
-# airsim.time.sleep(1)
-
-# Land the drone
-# client.landAsync().join()
-
-time.sleep(10)
-# # Disarm the drone
-# client.armDisarm(False)
-
-# # Release the connection
-# client.enableApiControl(False)

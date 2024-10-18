@@ -26,18 +26,28 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 class DQN(nn.Module):
     def __init__(self, in_channels=1, num_actions=8):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, 84, kernel_size=4, stride=4)
-        self.conv2 = nn.Conv2d(84, 42, kernel_size=4, stride=2)
-        self.conv3 = nn.Conv2d(42, 21, kernel_size=2, stride=2)
-        self.fc4 = nn.Linear(21 * 4 * 4, 168)
-        self.fc5 = nn.Linear(168, num_actions)
+        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=4, stride=2)
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=4, stride=2)
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=3, stride=2)
+        
+        # Adjusted fully connected layer to match the flattened size after conv layers
+        self.fc4 = nn.Linear(256 * 9 * 9, 512)
+        self.fc5 = nn.Linear(512, num_actions)
+        
+        # Optional: BatchNorm and Dropout
+        self.bn1 = nn.BatchNorm2d(64)
+        self.bn2 = nn.BatchNorm2d(128)
+        self.bn3 = nn.BatchNorm2d(256)
+        self.dropout = nn.Dropout(0.5)
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)
-        x = F.relu(self.fc4(x))
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
+        
+        x = x.view(x.size(0), -1)  # Flatten the output from the conv layers
+        
+        x = F.relu(self.dropout(self.fc4(x)))
         return self.fc5(x)
 
 
@@ -46,15 +56,16 @@ class DDQN_Agent:
         self.useDepth = useDepth
         self.eps_start = 0.9 # control randomness
         self.eps_end = 0.05
-        self.eps_decay = 30000
-        self.gamma = 0.8  # discount rate try 0
-        self.learning_rate = 0.001
-        self.batch_size = 512 #try 1000
-        self.memory = Memory(10000) #try 100000
+        self.eps_decay = 50000
+        self.gamma = 0.8  # discount rate
+        self.learning_rate = 0.0005
+        self.batch_size_range = (20, 256)  # Random sampling for batch size between 20 and 256
+        self.memory = Memory(10000)  # try 100000
         self.max_episodes = 10000
         self.save_interval = 2
         self.test_interval = 10
-        self.network_update_interval = 10
+        self.network_update_interval = 1000  # Frozen target network update after 1000 steps
+        self.target_update_steps = 0
         self.episode = -1
         self.steps_done = 0
         self.max_steps = 3400
@@ -67,7 +78,7 @@ class DDQN_Agent:
         self.updateNetworks()
 
         self.env = DroneEnv(useDepth)
-        self.optimizer = optim.Adam(self.policy.parameters(), self.learning_rate)
+        self.optimizer = optim.AdamW(self.policy.parameters(), self.learning_rate)
 
         if torch.cuda.is_available():
             print('Using device:', device)
@@ -102,8 +113,6 @@ class DDQN_Agent:
                   "\nModel: ", file,
                   "\nSteps done: ", self.steps_done,
                   "\nEpisode: ", self.episode)
-
-
         else:
             if os.path.exists("log.txt"):
                 open('log.txt', 'w').close()
@@ -142,7 +151,6 @@ class DDQN_Agent:
         )
         self.steps_done += 1
         if random.random() > self.eps_threshold:
-            # print("greedy")
             if torch.cuda.is_available():
                 action = np.argmax(self.policy(state).cpu().data.squeeze().numpy())
             else:
@@ -158,32 +166,32 @@ class DDQN_Agent:
         next_q = self.target(next_state).squeeze().cpu().detach().numpy()[action]
         expected_q = reward + (self.gamma * next_q)
 
-        error = abs(current_q - expected_q),
+        error = abs(current_q - expected_q)
 
         self.memory.add(error, state, action, reward, next_state)
 
     def learn(self):
-        if self.memory.tree.n_entries < self.batch_size:
+        # Random sampling of batch size between 20 and 256
+        batch_size = random.randint(*self.batch_size_range)
+
+        if self.memory.tree.n_entries < batch_size:
             return
 
-        states, actions, rewards, next_states, idxs, is_weights = self.memory.sample(self.batch_size)
-
-        states = tuple(states)
-        next_states = tuple(next_states)
+        states, actions, rewards, next_states, idxs, is_weights = self.memory.sample(batch_size)
 
         states = torch.cat(states)
         actions = np.asarray(actions)
         rewards = np.asarray(rewards)
         next_states = torch.cat(next_states)
 
-        current_q = self.policy(states)[[range(0, self.batch_size)], [actions]]
-        next_q =self.target(next_states).cpu().detach().numpy()[[range(0, self.batch_size)], [actions]]
+        current_q = self.policy(states)[[range(0, batch_size)], [actions]]
+        next_q = self.target(next_states).cpu().detach().numpy()[[range(0, batch_size)], [actions]]
         expected_q = torch.FloatTensor(rewards + (self.gamma * next_q)).to(device)
 
         errors = torch.abs(current_q.squeeze() - expected_q.squeeze()).cpu().detach().numpy()
 
         # update priority
-        for i in range(self.batch_size):
+        for i in range(batch_size):
             idx = idxs[i]
             self.memory.update(idx, errors[i])
 
@@ -191,6 +199,11 @@ class DDQN_Agent:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        # Update target network weights every n steps
+        self.target_update_steps += 1
+        if self.target_update_steps % self.network_update_interval == 0:
+            self.updateNetworks()
 
     def train(self):
         print("Starting...")
@@ -215,7 +228,6 @@ class DDQN_Agent:
                 if steps == self.max_steps:
                     done = 1
 
-                #self.memorize(state, action, reward, next_state)
                 self.append_sample(state, action, reward, next_state)
                 self.learn()
 
@@ -224,20 +236,16 @@ class DDQN_Agent:
                 score += reward
                 if done:
                     print("----------------------------------------------------------------------------------------")
-                    if self.memory.tree.n_entries < self.batch_size:
-                        print("Training will start after ", self.batch_size - self.memory.tree.n_entries, " steps.")
-                        break
-
                     print(
                         "episode:{0}, reward: {1}, mean reward: {2}, score: {3}, epsilon: {4}, total steps: {5}".format(
-                            self.episode, reward, round(score / steps, 2), score, self.eps_threshold, self.steps_done))
-                    score_history.append(score)
+                            self.episode, reward, round(score.item() / steps, 2), score.item(), self.eps_threshold, self.steps_done))
+                    score_history.append(score.item())
                     reward_history.append(reward)
                     with open('log.txt', 'a') as file:
                         file.write(
                             "episode:{0}, reward: {1}, mean reward: {2}, score: {3}, epsilon: {4}, total steps: {5}\n".format(
-                                self.episode, reward, round(score / steps, 2), score, self.eps_threshold,
-                                self.steps_done))
+                                self.episode, reward, round(score.item() / steps, 2), score.item(), self.eps_threshold, self.steps_done))
+
 
                     if torch.cuda.is_available():
                         print('Total Memory:', self.convert_size(torch.cuda.get_device_properties(0).total_memory))
@@ -269,7 +277,7 @@ class DDQN_Agent:
                         }
                         torch.save(checkpoint, self.save_dir + '//EPISODE{}.pt'.format(self.episode))
 
-                    if self.episode % self.network_update_interval == 0:
+                    if self.target_update_steps % self.network_update_interval == 0:
                         self.updateNetworks()
 
                     self.episode += 1
